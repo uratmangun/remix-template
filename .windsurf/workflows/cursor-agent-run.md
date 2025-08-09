@@ -47,8 +47,8 @@ echo $PROMPT | cursor-agent --print --output-format json
 
 6. Capture output to a file (useful in CI)
 ```fish
-# For JSON output saved to a file
-echo $PROMPT | cursor-agent --print --output-format json | tee agent-output.json
+# For text output saved to a file
+echo $PROMPT | cursor-agent --print --output-format text | tee agent-output.txt
 ```
 
 7. Safety and best practices
