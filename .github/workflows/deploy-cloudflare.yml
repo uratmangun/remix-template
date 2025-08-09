@@ -62,6 +62,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: true
         run: |
           set -e
           echo "Wrangler version:"; pnpm dlx wrangler --version
@@ -69,20 +70,16 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
 
           echo "Checking for existing project: ${PROJECT_SLUG}"
-          LIST_JSON=$(pnpm dlx wrangler pages project list --json --account-id "$CLOUDFLARE_ACCOUNT_ID")
-          echo "$LIST_JSON" | jq -e '. | type == "array"' >/dev/null || { echo "Unexpected list output"; echo "$LIST_JSON"; exit 1; }
-          EXISTS=$(echo "$LIST_JSON" | jq -r --arg name "$PROJECT_SLUG" '.[] | select(.name==$name) | .name' | head -n1)
-          if [ -n "$EXISTS" ]; then
+          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
             echo "Project '${PROJECT_SLUG}' already exists"
           else
             echo "Creating project '${PROJECT_SLUG}'..."
-            pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main --account-id "$CLOUDFLARE_ACCOUNT_ID" --no-interactive
+            pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main
             echo "Verifying creation..."
-            LIST_JSON=$(pnpm dlx wrangler pages project list --json --account-id "$CLOUDFLARE_ACCOUNT_ID")
-            EXISTS=$(echo "$LIST_JSON" | jq -r --arg name "$PROJECT_SLUG" '.[] | select(.name==$name) | .name' | head -n1)
-            if [ -z "$EXISTS" ]; then
-              echo "Project creation did not succeed. Check API token permissions (Account: Cloudflare Pages: Edit) and Account ID correctness."
-              exit 1
+            if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
+              echo "Project '${PROJECT_SLUG}' is ready"
+            else
+              echo "Project creation did not succeed. Check API token permissions (Account: Cloudflare Pages: Edit) and Account ID correctness."; exit 1
             fi
           fi
 
