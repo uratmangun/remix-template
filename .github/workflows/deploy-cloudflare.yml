@@ -70,11 +70,11 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
 
           echo "Checking for existing project: ${PROJECT_SLUG}"
-          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
+          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" --account-id "$CLOUDFLARE_ACCOUNT_ID" >/dev/null 2>&1; then
             echo "Project '${PROJECT_SLUG}' already exists"
           else
             echo "Creating project '${PROJECT_SLUG}'..."
-            CREATE_OUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main 2>&1) || true
+            CREATE_OUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main --account-id "$CLOUDFLARE_ACCOUNT_ID" 2>&1) || true
             echo "$CREATE_OUT"
             if echo "$CREATE_OUT" | grep -qi "already exists"; then
               echo "Project already exists (race), continuing"
@@ -83,8 +83,19 @@ jobs:
             else
               echo "Failed to ensure project creation. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."; exit 1
             fi
-            echo "Verifying creation..."
-            pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1 || { echo "Verification failed"; exit 1; }
+            echo "Verifying creation (with retries)..."
+            VERIFIED=0
+            for i in 1 2 3 4 5; do
+              if pnpm dlx wrangler pages project info "$PROJECT_SLUG" --account-id "$CLOUDFLARE_ACCOUNT_ID" >/dev/null 2>&1; then
+                echo "Verified on attempt $i"
+                VERIFIED=1
+                break
+              fi
+              echo "Attempt $i failed, retrying in 2s..."; sleep 2
+            done
+            if [ "$VERIFIED" -ne 1 ]; then
+              echo "Warning: Could not verify project via wrangler info. Continuing; deploy step will surface any issues."
+            fi
           fi
 
       - name: Deploy to Cloudflare Pages
