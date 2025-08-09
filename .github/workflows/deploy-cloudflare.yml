@@ -4,7 +4,13 @@ on:
   push:
     branches: [main, master]
     paths:
-      - 'index.html'
+      - 'app/**'
+      - 'public/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'tailwind.config.*'
       - '.github/workflows/deploy-cloudflare.yml'
   workflow_dispatch:
 
@@ -16,6 +22,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Remix SPA
+        run: pnpm build
+
+      - name: Ensure SPA fallback (_redirects)
+        run: |
+          if [ -f public/_redirects ]; then
+            mkdir -p build/client
+            cp public/_redirects build/client/_redirects
+          fi
 
       - name: Create Cloudflare Pages Project if not exists
         run: |
@@ -41,8 +71,8 @@ jobs:
                 \"name\": \"${PROJECT_NAME}\",
                 \"production_branch\": \"main\",
                 \"build_config\": {
-                  \"build_command\": \"\",
-                  \"destination_dir\": \".\",
+                  \"build_command\": \"pnpm build\",
+                  \"destination_dir\": \"build/client\",
                   \"root_dir\": \".\"
                 }
               }")
@@ -73,8 +103,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ vars.CLOUDFLARE_PROJECT_NAME || 'kiro-starter-pack' }}
-          directory: .
+          directory: build/client
           gitHubToken: ${{ secrets.ADMIN_TOKEN }}
+          wranglerVersion: '3'
 
       - name: Update Repository Homepage URL
         if: success()
@@ -90,7 +121,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   homepage: deploymentUrl,
-                  description: '🚀 Kiro & Windsurf Starter Pack - AI-Powered Development Template'
+                  description: 'Remix SPA – Cloudflare Pages static deployment'
                 });
                 
                 console.log(`✅ Repository homepage updated to: ${deploymentUrl}`);
