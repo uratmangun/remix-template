@@ -98,16 +98,27 @@ jobs:
             fi
           fi
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+      - name: Deploy to Cloudflare Pages (wrangler v3 deploy)
         id: cloudflare-deploy
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ${{ env.PROJECT_SLUG }}
-          directory: build/client
-          gitHubToken: ${{ secrets.ADMIN_TOKEN }}
-          wranglerVersion: '3'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -e
+          echo "Wrangler version:"; pnpm dlx wrangler --version
+          echo "Deploying project '${PROJECT_SLUG}' from directory 'build/client'"
+          DEPLOY_OUT=$(pnpm dlx wrangler pages deploy build/client --project-name "${PROJECT_SLUG}" 2>&1) || {
+            echo "$DEPLOY_OUT"
+            exit 1
+          }
+          echo "$DEPLOY_OUT"
+          # Extract first pages.dev URL from output
+          URL=$(echo "$DEPLOY_OUT" | grep -Eo 'https?://[^ ]+\.pages\.dev[^ ]*' | head -n1)
+          if [ -n "$URL" ]; then
+            echo "url=$URL" >> "$GITHUB_OUTPUT"
+            echo "Deployment URL: $URL"
+          else
+            echo "Warning: No deployment URL found in wrangler output" >&2
+          fi
 
       - name: Update Repository Homepage URL
         if: success()
