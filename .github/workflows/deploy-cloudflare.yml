@@ -70,9 +70,7 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
 
           echo "Checking for existing project: ${PROJECT_SLUG}"
-          LIST_JSON=$(pnpm dlx wrangler pages project list --format json || echo "[]")
-          echo "$LIST_JSON" | jq -e '. | type == "array"' >/dev/null || { echo "Unexpected list output from wrangler"; echo "$LIST_JSON"; exit 1; }
-          if echo "$LIST_JSON" | jq -e --arg name "$PROJECT_SLUG" '.[] | select(.name==$name)' >/dev/null; then
+          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
             echo "Project '${PROJECT_SLUG}' already exists"
           else
             echo "Creating project '${PROJECT_SLUG}'..."
@@ -85,6 +83,8 @@ jobs:
             else
               echo "Failed to ensure project creation. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."; exit 1
             fi
+            echo "Verifying creation..."
+            pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1 || { echo "Verification failed"; exit 1; }
           fi
 
       - name: Deploy to Cloudflare Pages
