@@ -70,16 +70,20 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
 
           echo "Checking for existing project: ${PROJECT_SLUG}"
-          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
+          LIST_JSON=$(pnpm dlx wrangler pages project list --format json || echo "[]")
+          echo "$LIST_JSON" | jq -e '. | type == "array"' >/dev/null || { echo "Unexpected list output from wrangler"; echo "$LIST_JSON"; exit 1; }
+          if echo "$LIST_JSON" | jq -e --arg name "$PROJECT_SLUG" '.[] | select(.name==$name)' >/dev/null; then
             echo "Project '${PROJECT_SLUG}' already exists"
           else
             echo "Creating project '${PROJECT_SLUG}'..."
-            pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main
-            echo "Verifying creation..."
-            if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
-              echo "Project '${PROJECT_SLUG}' is ready"
+            CREATE_OUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main 2>&1) || true
+            echo "$CREATE_OUT"
+            if echo "$CREATE_OUT" | grep -qi "already exists"; then
+              echo "Project already exists (race), continuing"
+            elif echo "$CREATE_OUT" | grep -qiE "Successfully created|created the"; then
+              echo "Project created"
             else
-              echo "Project creation did not succeed. Check API token permissions (Account: Cloudflare Pages: Edit) and Account ID correctness."; exit 1
+              echo "Failed to ensure project creation. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."; exit 1
             fi
           fi
 
