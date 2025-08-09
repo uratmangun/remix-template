@@ -47,73 +47,16 @@ jobs:
             cp public/_redirects build/client/_redirects
           fi
 
-      - name: Create Cloudflare Pages Project if not exists
+      - name: Compute Cloudflare project slug
         run: |
-          # Derive a valid project slug from repo name
           BASE_NAME="${{ github.event.repository.name }}"
-          BASE_SLUG=$(echo "$BASE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g')
-          CANDIDATE="$BASE_SLUG"
-
-          echo "Attempting to create Cloudflare Pages project: $CANDIDATE"
-          CREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/cf_create_response.json \
-            -X POST "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects" \
-            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"name\": \"${CANDIDATE}\",
-              \"production_branch\": \"main\",
-              \"build_config\": {
-                \"build_command\": \"pnpm build\",
-                \"destination_dir\": \"build/client\",
-                \"root_dir\": \".\"
-              }
-            }")
-
-          CREATE_HTTP_CODE=${CREATE_RESPONSE: -3}
-
-          if [ "$CREATE_HTTP_CODE" = "200" ] || [ "$CREATE_HTTP_CODE" = "201" ]; then
-            echo "✅ Created Cloudflare Pages project: ${CANDIDATE}"
-            echo "PROJECT_NAME=${CANDIDATE}" >> "$GITHUB_ENV"
-            cat /tmp/cf_create_response.json | jq '.result.subdomain' || true
-          else
-            # Read body for context
-            BODY=$(cat /tmp/cf_create_response.json || true)
-            echo "Creation failed ($CREATE_HTTP_CODE). Response: $BODY"
-
-            # If already exists (some APIs may return 409 or 400 with specific error), proceed
-            if echo "$BODY" | grep -qi "already exists"; then
-              echo "ℹ️ Project appears to already exist; proceeding with existing name"
-              echo "PROJECT_NAME=${CANDIDATE}" >> "$GITHUB_ENV"
-            elif [ "$CREATE_HTTP_CODE" = "409" ]; then
-              echo "ℹ️ Project already exists (409). Proceeding."
-              echo "PROJECT_NAME=${CANDIDATE}" >> "$GITHUB_ENV"
-            else
-              # Fallback to a unique suffix (short SHA)
-              FALLBACK="${BASE_SLUG}-${GITHUB_SHA:0:7}"
-              echo "Trying fallback name: $FALLBACK"
-              CREATE_FB=$(curl -s -w "%{http_code}" -o /tmp/cf_create_fb.json \
-                -X POST "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects" \
-                -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-                -H "Content-Type: application/json" \
-                -d "{
-                  \"name\": \"${FALLBACK}\",
-                  \"production_branch\": \"main\",
-                  \"build_config\": {
-                    \"build_command\": \"pnpm build\",
-                    \"destination_dir\": \"build/client\",
-                    \"root_dir\": \".\"
-                  }
-                }")
-              CREATE_FB_CODE=${CREATE_FB: -3}
-              if [ "$CREATE_FB_CODE" = "200" ] || [ "$CREATE_FB_CODE" = "201" ] || [ "$CREATE_FB_CODE" = "409" ]; then
-                echo "✅ Using project name: ${FALLBACK}"
-                echo "PROJECT_NAME=${FALLBACK}" >> "$GITHUB_ENV"
-                cat /tmp/cf_create_fb.json | jq '.result.subdomain' || true
-              else
-                echo "❌ Failed to create fallback project. HTTP Code: $CREATE_FB_CODE"; cat /tmp/cf_create_fb.json || true; exit 1
-              fi
-            fi
+          # lowercase, replace non [a-z0-9-] with '-', trim leading/trailing '-', and cap length to 63
+          SLUG=$(echo "$BASE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
+          if [ -z "$SLUG" ]; then
+            SLUG="site-${GITHUB_RUN_ID}"
           fi
+          echo "Using Cloudflare project: $SLUG"
+          echo "PROJECT_SLUG=$SLUG" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
@@ -121,7 +64,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ${{ env.PROJECT_NAME }}
+          projectName: ${{ env.PROJECT_SLUG }}
           directory: build/client
           gitHubToken: ${{ secrets.ADMIN_TOKEN }}
           wranglerVersion: '3'
