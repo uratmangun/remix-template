@@ -49,18 +49,21 @@ jobs:
 
       - name: Create Cloudflare Pages Project if not exists
         run: |
-          PROJECT_NAME="${{ github.event.repository.name }}"
+          # Derive a valid project slug from repo name
+          BASE_NAME="${{ github.event.repository.name }}"
+          BASE_SLUG=$(echo "$BASE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g')
+          CANDIDATE="$BASE_SLUG"
           
           # Check if project exists
           RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/cf_response.json \
-            -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/${PROJECT_NAME}" \
+            -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/${CANDIDATE}" \
             -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
             -H "Content-Type: application/json")
           
           HTTP_CODE=${RESPONSE: -3}
           
           if [ "$HTTP_CODE" = "404" ]; then
-            echo "Project ${PROJECT_NAME} not found. Creating new project..."
+            echo "Project ${CANDIDATE} not found. Creating new project..."
             
             # Create new project
             CREATE_RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/cf_create_response.json \
@@ -68,7 +71,7 @@ jobs:
               -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
               -H "Content-Type: application/json" \
               -d "{
-                \"name\": \"${PROJECT_NAME}\",
+                \"name\": \"${CANDIDATE}\",
                 \"production_branch\": \"main\",
                 \"build_config\": {
                   \"build_command\": \"pnpm build\",
@@ -80,20 +83,59 @@ jobs:
             CREATE_HTTP_CODE=${CREATE_RESPONSE: -3}
             
             if [ "$CREATE_HTTP_CODE" = "200" ] || [ "$CREATE_HTTP_CODE" = "201" ]; then
-              echo "✅ Successfully created Cloudflare Pages project: ${PROJECT_NAME}"
+              echo "✅ Successfully created Cloudflare Pages project: ${CANDIDATE}"
               cat /tmp/cf_create_response.json | jq '.result.subdomain' || echo "Project created successfully"
+              echo "PROJECT_NAME=${CANDIDATE}" >> "$GITHUB_ENV"
             else
               echo "❌ Failed to create project. HTTP Code: $CREATE_HTTP_CODE"
               cat /tmp/cf_create_response.json || echo "No response body"
               exit 1
             fi
           elif [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Project ${PROJECT_NAME} already exists"
+            echo "✅ Project ${CANDIDATE} already exists"
             cat /tmp/cf_response.json | jq '.result.subdomain' || echo "Project found"
+            echo "PROJECT_NAME=${CANDIDATE}" >> "$GITHUB_ENV"
           else
-            echo "❌ Unexpected response when checking project. HTTP Code: $HTTP_CODE"
-            cat /tmp/cf_response.json || echo "No response body"
-            exit 1
+            echo "⚠️ Unexpected response ($HTTP_CODE) for candidate name '${CANDIDATE}'. Trying fallback with short SHA suffix..."
+            FALLBACK="${BASE_SLUG}-${GITHUB_SHA:0:7}"
+            RESPONSE_FALLBACK=$(curl -s -w "%{http_code}" -o /tmp/cf_response_fallback.json \
+              -X GET "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects/${FALLBACK}" \
+              -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+              -H "Content-Type: application/json")
+            HTTP_CODE_FB=${RESPONSE_FALLBACK: -3}
+
+            if [ "$HTTP_CODE_FB" = "404" ]; then
+              echo "Fallback project ${FALLBACK} not found. Creating..."
+              CREATE_FB=$(curl -s -w "%{http_code}" -o /tmp/cf_create_fb.json \
+                -X POST "https://api.cloudflare.com/client/v4/accounts/${{ secrets.CLOUDFLARE_ACCOUNT_ID }}/pages/projects" \
+                -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"${FALLBACK}\",
+                  \"production_branch\": \"main\",
+                  \"build_config\": {
+                    \"build_command\": \"pnpm build\",
+                    \"destination_dir\": \"build/client\",
+                    \"root_dir\": \".\"
+                  }
+                }")
+              CREATE_FB_CODE=${CREATE_FB: -3}
+              if [ "$CREATE_FB_CODE" = "200" ] || [ "$CREATE_FB_CODE" = "201" ]; then
+                echo "✅ Successfully created Cloudflare Pages project: ${FALLBACK}"
+                echo "PROJECT_NAME=${FALLBACK}" >> "$GITHUB_ENV"
+                cat /tmp/cf_create_fb.json | jq '.result.subdomain' || true
+              else
+                echo "❌ Failed to create fallback project. HTTP Code: $CREATE_FB_CODE"; cat /tmp/cf_create_fb.json || true; exit 1
+              fi
+            elif [ "$HTTP_CODE_FB" = "200" ]; then
+              echo "✅ Fallback project ${FALLBACK} already exists"
+              echo "PROJECT_NAME=${FALLBACK}" >> "$GITHUB_ENV"
+              cat /tmp/cf_response_fallback.json | jq '.result.subdomain' || true
+            else
+              echo "❌ Unexpected response when checking fallback. HTTP Code: $HTTP_CODE_FB"
+              cat /tmp/cf_response.json || echo "No response body"
+              exit 1
+            fi
           fi
 
       - name: Deploy to Cloudflare Pages
@@ -102,7 +144,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ${{ github.event.repository.name }}
+          projectName: ${{ env.PROJECT_NAME }}
           directory: build/client
           gitHubToken: ${{ secrets.ADMIN_TOKEN }}
           wranglerVersion: '3'
