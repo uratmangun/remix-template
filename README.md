@@ -4,7 +4,7 @@ A modern Remix application template with TypeScript, Tailwind CSS, and Vite for 
 
 ## One click deploy url
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/75b2pJ?referralCode=zZok6X)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/remix-template?referralCode=zZok6X)
 
 ## About Hosting remix-template
 
