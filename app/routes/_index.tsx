@@ -1,4 +1,5 @@
 import type { MetaFunction } from "@remix-run/node";
+import { useState } from "react";
 
 export const meta: MetaFunction = () => {
   return [
@@ -8,6 +9,8 @@ export const meta: MetaFunction = () => {
 };
 
 export default function Index() {
+  const [copied, setCopied] = useState(false);
+  const ghCommand = `gh repo create my-remix-app --template uratmangun/remix-template --public --clone\ncd my-remix-app\npnpm install`;
   return (
     <div className="flex h-screen items-center justify-center">
       <div className="flex flex-col items-center gap-16">
@@ -15,17 +18,37 @@ export default function Index() {
           <h1 className="leading text-2xl font-bold text-gray-800 dark:text-gray-100">
             Welcome to <span className="sr-only">Remix</span>
           </h1>
-          <div className="h-[144px] w-[434px]">
-            <img
-              src="/logo-light.png"
-              alt="Remix"
-              className="block w-full dark:hidden"
-            />
-            <img
-              src="/logo-dark.png"
-              alt="Remix"
-              className="hidden w-full dark:block"
-            />
+          <div className="w-[684px] max-w-[90vw] rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Clone this template with GitHub CLI
+                </p>
+                <p className="text-xs text-gray-600 dark:text-gray-300">
+                  Creates a new repo from template and clones it locally
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(ghCommand);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+                className="rounded-md bg-sky-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600"
+                aria-label="Copy GitHub CLI command"
+                title="Copy command"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <pre className="overflow-x-auto rounded-lg bg-gray-50 p-4 text-xs leading-5 text-gray-800 ring-1 ring-inset ring-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:ring-gray-700">
+{ghCommand}
+            </pre>
           </div>
         </header>
         <nav className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-gray-200 p-6 dark:border-gray-700">
